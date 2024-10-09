@@ -15,19 +15,28 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
+	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	"github.com/tidwall/gjson"
 )
 
-// FlattenedJSON represents the flattened structure of the JSON file
-type FlattenedJSON map[string]string
+type OrderedKV struct {
+	Key   string
+	Value gjson.Result
+}
 
-// KeyUsage represents the usage of a key in a file
-type KeyUsage struct {
-	File     string `json:"file"`
-	Function string `json:"function"`
+func parseOrderedJSON(jsonStr string) []OrderedKV {
+	var result []OrderedKV
+	gjson.Parse(jsonStr).ForEach(func(key, value gjson.Result) bool {
+		result = append(result, OrderedKV{Key: key.String(), Value: value})
+		return true
+	})
+	return result
 }
 
 type KeyTranslation struct {
-	Original         string
+	FlattenedKey     string
+	Text             string
+	UsageFound       bool
 	File             string
 	Function         string
 	AIContext        string
@@ -46,29 +55,31 @@ func main() {
 	}
 
 	// Flatten the JSON object
-	flattenedPairs := flattenJSON(enJson, "")
+	kvArray := flattenJSON(parseOrderedJSON(string(enJson)), "")
 
 	// Find all TSX files in the web directory
 	webDir := filepath.Join("web")
-	tsxFiles, err := findTSXFiles(webDir)
+	files, err := findTSFiles(webDir)
 	if err != nil {
 		fmt.Printf("Error finding TSX files: %v\n", err)
 		return
 	}
 
 	// Print all TSX files
-	fmt.Println("TSX files found:")
-	for _, file := range tsxFiles {
-		fmt.Println(file)
-	}
+	// fmt.Println("Files found:")
+	// for _, file := range files {
+	// 	fmt.Println(file)
+	// }
 	fmt.Println() // Add a blank line for better readability
 
-	// Initialize tree-sitter parser
-	parser := sitter.NewParser()
-	parser.SetLanguage(tsx.GetLanguage())
+	// Initialize tree-sitter tsxParser
+	tsxParser := sitter.NewParser()
+	tsxParser.SetLanguage(tsx.GetLanguage())
 
-	// Process files and find key usage
-	keyUsage, err := findKeyUsage(flattenedPairs, tsxFiles, parser)
+	tsParser := sitter.NewParser()
+	tsParser.SetLanguage(typescript.GetLanguage())
+
+	keyTranslations, err := createTrContext(kvArray, files, tsxParser, tsParser)
 	if err != nil {
 		fmt.Printf("Error finding key usage: %v\n", err)
 		return
@@ -79,16 +90,6 @@ func main() {
 	// 	fmt.Printf("Key: %s, File: %s, Function: \n%s\n\n", key, usage.File, usage.Function)
 	// }
 
-	keyTranslations := make(map[string]KeyTranslation)
-	for key, usage := range keyUsage {
-		keyTranslations[key] = KeyTranslation{
-			Original: flattenedPairs[key],
-			File:     usage.File,
-			Function: usage.Function,
-			Tr:       flattenedPairs[key],
-		}
-	}
-
 	// Initialize OpenAI client
 	config := openai.DefaultConfig(os.Getenv("OPENROUTER_API_KEY"))
 	config.BaseURL = "https://openrouter.ai/api/v1"
@@ -98,32 +99,34 @@ func main() {
 	var wg sync.WaitGroup
 	results := make(chan string, len(keyTranslations))
 
-	for key, translation := range keyTranslations {
+	for i, translation := range keyTranslations {
 		wg.Add(1)
-		go func(key string, translation KeyTranslation) {
+		go func(i int, translation KeyTranslation) {
 			defer wg.Done()
 
-			err := simpleTranslate(key, &translation, client)
+			err := simpleTranslate(keyTranslations[i].FlattenedKey, &translation, client)
 			if err != nil {
-				results <- fmt.Sprintf("Error translating key %s: %v\n", key, err)
+				results <- fmt.Sprintf("Error translating key %s: %v\n", keyTranslations[i].FlattenedKey, err)
 				return
 			}
 
-			err = translateWithFunContext(key, &translation, client)
-			if err != nil {
-				results <- fmt.Sprintf("Error translating key %s: %v\n", key, err)
-				return
+			if translation.UsageFound {
+				err = translateWithFunContext(keyTranslations[i].FlattenedKey, &translation, client)
+				if err != nil {
+					results <- fmt.Sprintf("Error translating key %s: %v\n", keyTranslations[i].FlattenedKey, err)
+					return
+				}
+
+				err = TranslateWithAIContext(keyTranslations[i].FlattenedKey, &translation, client)
+				if err != nil {
+					results <- fmt.Sprintf("Error translating key %s: %v\n", keyTranslations[i].FlattenedKey, err)
+					return
+				}
 			}
 
-			err = translateWithAIContext(key, &translation, client)
-			if err != nil {
-				results <- fmt.Sprintf("Error translating key %s: %v\n", key, err)
-				return
-			}
-
-			results <- fmt.Sprintf("Key: %s\nOriginal: %s\nSimple Translation: %s\nFunc Translation: %s\nContext Translation: %s\nAI Context: %s\n\n",
-				key, translation.Original, translation.Tr, translation.TrWithFunContext, translation.TrWithAIContext, translation.AIContext)
-		}(key, translation)
+			results <- fmt.Sprintf("Key: %s\nText: %s\nSimple Translation: %s\nUsageFound: %t\nFunc Translation: %s\nContext Translation: %s\nAI Context: %s\n\n",
+				keyTranslations[i].FlattenedKey, translation.Text, translation.Tr, translation.UsageFound, translation.TrWithFunContext, translation.TrWithAIContext, translation.AIContext)
+		}(i, translation)
 	}
 
 	go func() {
@@ -135,23 +138,90 @@ func main() {
 		fmt.Print(result)
 	}
 
+	err = serializeToJSON(keyTranslations)
+	if err != nil {
+		fmt.Printf("Error serializing to JSON: %v\n", err)
+		return
+	}
+
+}
+
+func serializeToJSON(keyTranslations []KeyTranslation) error {
+	// Serialize keyTranslations to JSON
+	jsonOutput := make(map[string]interface{})
+	for _, translation := range keyTranslations {
+		keys := strings.Split(translation.FlattenedKey, ".")
+		current := jsonOutput
+		for i, key := range keys {
+			if i == len(keys)-1 {
+				// Last key, set the value
+				current[key] = translation.Tr
+				// current[key] = map[string]interface{}{
+				// 	"text":               translation.Text,
+				// 	"simpleTranslation":  translation.Tr,
+				// 	"usageFound":         translation.UsageFound,
+				// 	"funcTranslation":    translation.TrWithFunContext,
+				// 	"contextTranslation": translation.TrWithAIContext,
+				// 	"aiContext":          translation.AIContext,
+				// }
+			} else {
+				// Not the last key, create nested map if it doesn't exist
+				if _, exists := current[key]; !exists {
+					current[key] = make(map[string]interface{})
+				}
+				current = current[key].(map[string]interface{})
+			}
+		}
+	}
+
+	// Convert to JSON
+	jsonData, err := json.MarshalIndent(jsonOutput, "", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling to JSON: %v\n", err)
+		return err
+	}
+
+	// Write JSON to file
+	err = os.WriteFile("translations.json", jsonData, 0644)
+	if err != nil {
+		fmt.Printf("Error writing JSON to file: %v\n", err)
+		return err
+	}
+
+	fmt.Println("Translations have been serialized to translations.json")
+	return nil
 }
 
 func simpleTranslate(key string, translation *KeyTranslation, client *openai.Client) error {
-	prompt := fmt.Sprintf(`
-	You are a translation expert that translate website.
-	Please translate the following English text to Chinese in a website.
-	When doing the transltion, please only returns the translation, no other text.
-	---
-	Text to translate: %s`, translation.Original)
+
+	systemPrompt := `
+	You are a translation assistant for a website. You are responsible for translate the website's UI.
+	You will receive a language code and a text delimited by "---" that needs to be translated.
+	Please follow the steps below to process the code snippet:
+		Step 1: Infer the regional language corresponding to the language code you received.
+		Step 2: Translate the text delimited by "---" into the corresponding regional language.
+	Ensure the output can be directly used in the website.
+	Ensure the output does not contain any placeholders like "---".
+	`
+
+	userPrompt := fmt.Sprintf(`
+	Language code: %s
+	Text to translate: ---%s---
+	`, `zh-CN`, translation.Text)
+
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini,
+			Model:       openai.GPT4oMini,
+			Temperature: 0,
 			Messages: []openai.ChatCompletionMessage{
 				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: systemPrompt,
+				},
+				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
+					Content: userPrompt,
 				},
 			},
 		},
@@ -171,25 +241,36 @@ func simpleTranslate(key string, translation *KeyTranslation, client *openai.Cli
 }
 
 func translateWithFunContext(key string, translation *KeyTranslation, client *openai.Client) error {
-	prompt := fmt.Sprintf(`
-	You are a translation expert that translate website.
-	Please translate the following English text to Chinese, considering the function context.
-	The function context is the code that contains the user facing text to translate.
-	Inside the function context, the text to translate is wrapped with "---" and "---".
-	Please only returns the translation, no other text.
-	---
-	Function context: %s
-	---
-	Text to translate: %s.
-	`, translation.Function, translation.Original)
+	systemPrompt := `
+	You are a translation assistant for a website. You are responsible for translate the website's UI.
+	You will receive a language code, a code snippet, a text delimited by "---" that needs to be translated.
+	Please follow the steps below to process the code snippet:
+		Step 1: Infer the regional language corresponding to the language code you received.
+		Step 2: Infer the UI related context on how the text delimited by "---" is used from the code snippet.
+		Step 3: Translate the text delimited by "---" into the corresponding regional language, based on the UI related context.
+	Ensure the output can be directly used in the website.
+	Ensure the output does not contain any placeholders like "---".
+	`
+
+	userPrompt := fmt.Sprintf(`
+	Language code: %s
+	Code snippet: %s
+	Text to translate: ---%s---
+	`, `zh-CN`, translation.Function, translation.Text)
+
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini,
+			Model:       openai.GPT4oMini,
+			Temperature: 0,
 			Messages: []openai.ChatCompletionMessage{
 				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: systemPrompt,
+				},
+				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
+					Content: userPrompt,
 				},
 			},
 		},
@@ -207,113 +288,32 @@ func translateWithFunContext(key string, translation *KeyTranslation, client *op
 	}
 }
 
-func translateWithAIContext(key string, translation *KeyTranslation, client *openai.Client) error {
-	// returns the readable context from function
-	prompt := fmt.Sprintf(`
-	I have some code, it contains user facing string I want to translate.
-	Please extract the human readable tranlsation context about the string based on the code I provide so that I can use it to translate the string by translators.
-	Inside the code, the text to translate is wrapped with "---" and "---".
-	The translation context should describes the context around the text to translate which is wrapped with "---" and "---".
-	The translation context should only describes the UI/UX where the string is used.
-	The translation context should not mention that it is related to code.
-	The translation context should not mention the "---" and "---" wrapper.
-	The translation context should be easy for translators to understand.
-	Please start with "It appears".
-	---
-	Code: %s,	
-	`, translation.Function)
-
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-		},
-	)
-	if err != nil {
-		fmt.Printf("Error translating key %s: %v\n", key, err)
-		return err
-	}
-	if len(resp.Choices) > 0 {
-		translation.AIContext = resp.Choices[0].Message.Content
-	}
-
-	// translate based on AI context
-	prompt = fmt.Sprintf(`
-	You are a translation expert that translate website's UI.
-	Please translate the following English text to Chinese.
-	When doing the translation, please consider the translation context I provide and make the translation more accurate and natural.
-	When doing the translation, please take into account that this is a website's UI, please use the most popular and widely used words and expressions.
-	If there are some words or expressions that is widely understood an do not need translation, please do not translate them.
-	Do not translate "Bug".
-	---
-	Translation Context: %s
-	---
-	Text to translate: %s.
-	`, translation.AIContext, translation.Original)
-	resp, err = client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-			Temperature: 0,
-		},
-	)
-	if err != nil {
-		fmt.Printf("Error translating key %s: %v\n", key, err)
-		return err
-	}
-
-	if len(resp.Choices) > 0 {
-		translation.TrWithAIContext = resp.Choices[0].Message.Content
-		return nil
-	} else {
-		return fmt.Errorf("no translation found for key %s", key)
-	}
-}
-
-func readJSON(path string) (map[string]interface{}, error) {
+func readJSON(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var result map[string]interface{}
-	err = json.Unmarshal(data, &result)
-	return result, err
+	return data, nil
 }
 
-func flattenJSON(obj map[string]interface{}, prefix string) FlattenedJSON {
-	flattened := make(FlattenedJSON)
-	for k, v := range obj {
-		newKey := k
+func flattenJSON(parsed []OrderedKV, prefix string) []OrderedKV {
+	var flattened []OrderedKV
+	for _, kv := range parsed {
+		newKey := kv.Key
 		if prefix != "" {
-			newKey = prefix + "." + k
+			newKey = prefix + "." + kv.Key
 		}
 
-		switch child := v.(type) {
-		case map[string]interface{}:
-			for ck, cv := range flattenJSON(child, newKey) {
-				flattened[ck] = cv
-			}
-		default:
-			flattened[newKey] = fmt.Sprintf("%v", v)
+		if kv.Value.IsObject() {
+			childFlattened := flattenJSON(parseOrderedJSON(kv.Value.Raw), newKey)
+			flattened = append(flattened, childFlattened...)
+		} else {
+			flattened = append(flattened, OrderedKV{Key: newKey, Value: kv.Value})
 		}
 	}
 	return flattened
 }
-
-func findTSXFiles(dir string) ([]string, error) {
+func findTSFiles(dir string) ([]string, error) {
 	gitignore, err := ignore.CompileIgnoreFile(filepath.Join(dir, ".gitignore"))
 	if err != nil {
 		// If .gitignore doesn't exist, continue without ignoring
@@ -326,7 +326,7 @@ func findTSXFiles(dir string) ([]string, error) {
 			return err
 		}
 		relPath, _ := filepath.Rel(dir, path)
-		if !info.IsDir() && strings.HasSuffix(path, ".tsx") && !gitignore.MatchesPath(relPath) {
+		if !info.IsDir() && (strings.HasSuffix(path, ".tsx") || strings.HasSuffix(path, ".ts")) && !gitignore.MatchesPath(relPath) {
 			// print the file name
 			// fmt.Printf("Found TSX file: %s in directory: %s\n", filepath.Base(path), filepath.Dir(path))
 			files = append(files, path)
@@ -336,11 +336,16 @@ func findTSXFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-func findKeyUsage(flattenedKeys FlattenedJSON, tsxFiles []string, parser *sitter.Parser) (map[string]KeyUsage, error) {
-	results := make(map[string]KeyUsage)
+func createTrContext(flattenedKVs []OrderedKV, tsxFiles []string, tsxParser *sitter.Parser, tsParser *sitter.Parser) ([]KeyTranslation, error) {
+	results := make([]KeyTranslation, len(flattenedKVs))
 
-	// Create the query once, outside the loops
-	query, err := sitter.NewQuery([]byte(`
+	// Initialize all keys with Found set to false
+	for i := range flattenedKVs {
+		results[i] = KeyTranslation{FlattenedKey: flattenedKVs[i].Key, Text: flattenedKVs[i].Value.String(), UsageFound: false}
+	}
+
+	// Create the tsxQuery once, outside the loops
+	tsxQuery, err := sitter.NewQuery([]byte(`
 		(call_expression
 			function: (identifier) @func
 			arguments: (arguments
@@ -353,19 +358,41 @@ func findKeyUsage(flattenedKeys FlattenedJSON, tsxFiles []string, parser *sitter
 		return nil, err
 	}
 
+	tsQuery, err := sitter.NewQuery([]byte(`
+		(call_expression
+			function: (identifier) @func
+			arguments: (arguments
+				(string (string_fragment) @key)
+				.
+			)
+		)
+	`), typescript.GetLanguage())
+	if err != nil {
+		return nil, err
+	}
+
 	for _, file := range tsxFiles {
 		content, err := os.ReadFile(file)
 		if err != nil {
 			return nil, err
 		}
 
-		tree, err := parser.ParseCtx(context.Background(), nil, content)
+		var tree *sitter.Tree
+		if strings.HasSuffix(file, ".tsx") {
+			tree, err = tsxParser.ParseCtx(context.Background(), nil, content)
+		} else {
+			tree, err = tsParser.ParseCtx(context.Background(), nil, content)
+		}
 		if err != nil {
 			return nil, err
 		}
 
 		qc := sitter.NewQueryCursor()
-		qc.Exec(query, tree.RootNode())
+		if strings.HasSuffix(file, ".tsx") {
+			qc.Exec(tsxQuery, tree.RootNode())
+		} else {
+			qc.Exec(tsQuery, tree.RootNode())
+		}
 
 		for {
 			match, ok := qc.NextMatch()
@@ -386,11 +413,12 @@ func findKeyUsage(flattenedKeys FlattenedJSON, tsxFiles []string, parser *sitter
 					fullKeyName := fmt.Sprintf("%s.%s", parentFunctionName, keyContent)
 					parentFunctionContent := parent.Content(content)
 
-					for key := range flattenedKeys {
-						if fullKeyName == key {
+					for i := range flattenedKVs {
+						flattenedKey := flattenedKVs[i].Key
+						if fullKeyName == flattenedKey {
 							// replace the keyContent inside parentFunctionContent with value
-							replacedContent := strings.Replace(parentFunctionContent, keyContent, fmt.Sprintf("---%s---", flattenedKeys[key]), -1)
-							results[key] = KeyUsage{File: file, Function: replacedContent}
+							replacedContent := strings.Replace(parentFunctionContent, keyContent, fmt.Sprintf("---%s---", flattenedKVs[i].Value.String()), -1)
+							results[i] = KeyTranslation{FlattenedKey: flattenedKey, Text: flattenedKVs[i].Value.String(), UsageFound: true, File: file, Function: replacedContent}
 						}
 					}
 				}
