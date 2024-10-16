@@ -1,0 +1,192 @@
+{
+  "timeDiff": {
+    "days": "{count} {count, plural, one {day} other {days}} ago",
+    "hours": "{count} {count, plural, one {hour} other {hours}} ago",
+    "minutes": "{count} {count, plural, one {minute} other {minutes}} ago",
+    "seconds": "{count} {count, plural, one {second} other {seconds}} ago"
+  },
+  "Hero": {
+    "announcementBadge": "Announcing Public Beta",
+    "title": "Bug reporting made simple",
+    "subtitle": "Send bug report with technical details engineers want."
+  },
+  "Features": {
+    "title": "A <svgStrong>modern</svgStrong> way to report bugs",
+    "screen": {
+      "badge": "CAPTURE SCREEN",
+      "title": "Visual context for your issue",
+      "desc": "Your website's UI/UX issues need a clear visual context. Use TagBug to record your screen with annotated screenshot or video.",
+      "points": {
+        "screenshot": "Screenshot with annotations",
+        "video": "Videos"
+      }
+    },
+    "technicalDetails": {
+      "badge": "TECHNICAL DETAILS",
+      "title": "Engineers need critical data to identify issues",
+      "desc": "System information, network request and console logs are collected with the issue. No more back and force communication between QA and engineers.",
+      "points": {
+        "systemInfo": "System information",
+        "javascriptLogs": "Javascript logs",
+        "networkRequest": "Network request"
+      }
+    },
+    "instantReplay": {
+      "badge": "INSTANT REPLAY",
+      "title": "Time travel debugging",
+      "desc": "TagBug can replay what happened in the last few minutes on your website. It's like a time machine, and you can see what happens before the bug happens.",
+      "points": []
+    },
+    "shareWithTeam": {
+      "badge": "COLLABORATION",
+      "title": "Share with your team",
+      "desc": "Every issue is private by default, and you can share it with invited people. TagBug also allows you create folders to manage issues.",
+      "points": {
+        "privateByDefault": "Private by default",
+        "teamCollaboration": "Team collaboration",
+        "organizeWithFolders": "Organize with folders"
+      }
+    }
+  },
+  "CallToAction": {
+    "title": "Boost your team's productivity today"
+  },
+  "Pricing": {
+    "betaMessage": "During public beta, it is <freeSpan>free</freeSpan> to use TagBug.",
+    "feedbackMessage": "We will release a paid plan soon. We would love to hear your <feedbackLink>feedback</feedbackLink>."
+  },
+  "Login": {
+    "title": "Login",
+    "description": "Enter your email below to login to your account",
+    "emailLabel": "Email",
+    "emailPlaceholder": "m@example.com",
+    "loginButton": "Login",
+    "orDivider": "OR",
+    "googleLogin": "Login with Google",
+    "githubLogin": "Login with GitHub",
+    "otpDialog": {
+      "title": "Enter one-time login code",
+      "description": "Check your inbox for the code to enter below. The code will be valid for {minutes} minutes.",
+      "resendButton": "Resend",
+      "resendingButton": "Resending",
+      "verifyButton": "Verify",
+      "errorMessage": "The code you entered is incorrect. It may have been used already or it may have expired."
+    }
+  },
+  "Billing": {
+    "title": "Billing",
+    "currentPlan": "Current Plan",
+    "nextRenewDate": "Next renew Date",
+    "managePlan": "Manage Plan",
+    "upgradeToProPersonal": "Upgrade to Pro Personal",
+    "upgradeToProTeam": "Upgrade to Pro Team"
+  },
+  "Common": {
+    "loading": "Loading"
+  },
+  "TeamActions": {
+    "proTeam": "Pro Team",
+    "proTeamTooltip": "pro team plan",
+    "upgrade": "Upgrade"
+  },
+  "PersonalActions": {
+    "proPersonal": "Pro Personal",
+    "proPersonalTooltip": "pro personal plan",
+    "upgrade": "Upgrade"
+  },
+  "InviteByEmail": {
+    "title": "Invite by email",
+    "description": "An email will be sent to the recipient with a link to join the team",
+    "emailPlaceholder": "Enter email",
+    "roleLabel": "Role",
+    "roleMember": "Member",
+    "roleAdmin": "Admin",
+    "sendInvite": "Send Invite",
+    "inviteTable": {
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "remove": "Remove",
+      "cancelInvitation": "cancel invitation"
+    }
+  },
+  "MainHeader": {
+    "toggleMenu": "Toggle navigation menu",
+    "personal": "Personal",
+    "teams": "Teams",
+    "help": "Help",
+    "upgradeCard": {
+      "title": "Upgrade to Pro",
+      "description": "Unlock all features and get unlimited access to our support team.",
+      "button": "Coming Soon"
+    }
+  },
+  "Folder": {
+    "folders": "Folders",
+    "newFolder": "New folder",
+    "folderCreated": "Folder \"{name}\" created",
+    "settings": "Settings",
+    "rename": "Rename",
+    "share": "Share",
+    "delete": "Delete",
+    "issueCount": "{count, plural, one {# issue} other {# issues}}"
+  },
+  "DeleteTeam": {
+    "title": "Delete Team",
+    "description": "If you want to permanently delete this team and all of its data, you can do so below.",
+    "deleteButton": "Delete this team"
+  },
+  "SettingsNav": {
+    "general": "General",
+    "members": "Members"
+  },
+  "TeamsCollapsible": {
+    "teams": "Teams",
+    "noTeams": "No teams created"
+  },
+  "UpdateTeamName": {
+    "teamWorkspaceName": "Team workspace name",
+    "personalWorkspaceName": "Personal workspace name",
+    "update": "Update",
+    "cancel": "Cancel",
+    "nameChanged": "Team name has changed"
+  },
+  "InviteByLink": {
+    "title": "Invite by link",
+    "description": "Anyone with the link can join the team.",
+    "copyButton": "Copy"
+  },
+  "MembersTable": {
+    "title": "Members",
+    "memberCount": "{count}/{limit} members",
+    "columns": {
+      "email": "Email",
+      "role": "Role",
+      "removeFromTeam": "remove from team"
+    },
+    "changeRole": {
+      "title": "Change the role of {email}?",
+      "selectNewRole": "Select a new role",
+      "memberRole": "Member",
+      "memberDescription": "Can manage issues and folders in this team.",
+      "adminRole": "Admin",
+      "adminDescription": "Can manage team members in this team.",
+      "changeRoleButton": "Change role"
+    }
+  },
+  "Sidebar": {
+    "notifications": "Toggle notifications",
+    "workspace": "Workspace",
+    "newTeam": "New team workspace",
+    "home": "Home",
+    "teammates": "Teammates",
+    "billing": "Billing",
+    "settings": "Settings",
+    "help": "Help"
+  },
+  "UserProfile": {
+    "signedInAs": "Signed in as",
+    "support": "Support",
+    "logout": "Log out"
+  }
+}

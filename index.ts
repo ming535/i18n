@@ -227,7 +227,7 @@ Output only the new translation and nothing else.
 }
 
 async function main() {
-  const filePath = "web/messages/en.json";
+  const filePath = "en.json";
   const sourceObj = loadJSON(filePath);
 
   const promises = iterateObject(sourceObj);
